@@ -6,101 +6,124 @@ export class URLAnalyzerService {
   static async analyzeURL(inputUrl) {
     let formattedUrl = inputUrl.trim();
     if (!/^https?:\/\//i.test(formattedUrl)) {
-      formattedUrl = 'http://' + formattedUrl;
+      formattedUrl = 'https://' + formattedUrl;
     }
 
-    const flags = [];
-    const decisionMatrix = [];
+    const officialDomains = [
+      'flipkart.com', 'flipkart.in',
+      'amazon.com', 'amazon.in',
+      'google.com', 'google.co.in',
+      'sbi.co.in', 'onlinesbi.sbi',
+      'hdfcbank.com', 'icicibank.com',
+      'paytm.com', 'whatsapp.com',
+      'telegram.org', 't.me',
+      'tcs.com', 'myntra.com',
+      'meesho.com', 'swiggy.com', 'zomato.com',
+      'apple.com', 'microsoft.com'
+    ];
+
     let hostname = '';
     let isHttps = false;
-    let isIpAddress = false;
-    let isSuspiciousTld = false;
 
     try {
       const parsed = new URL(formattedUrl);
       hostname = parsed.hostname.toLowerCase();
       isHttps = parsed.protocol === 'https:';
-      isIpAddress = /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
-
-      const suspiciousTlds = ['.xyz', '.top', '.tk', '.online', '.site', '.club', '.work', '.info', '.biz', '.cc', '.ru', '.cf', '.ga', '.ml', '.gq'];
-      isSuspiciousTld = suspiciousTlds.some((tld) => hostname.endsWith(tld));
-
-      // 1. HTTP vs HTTPS Check
-      if (!isHttps) {
-        flags.push('HTTP (No SSL)');
-        decisionMatrix.push({ indicator: 'HTTP (No SSL) Unencrypted Connection', weight: 25 });
-      }
-
-      // 2. IP Address Hostname Check
-      if (isIpAddress) {
-        flags.push('Unknown Domain / Raw IP');
-        decisionMatrix.push({ indicator: 'Raw IP Hostname (No Domain Record)', weight: 35 });
-      }
-
-      // 3. Suspicious TLD / Domain Reputation Low
-      if (isSuspiciousTld) {
-        flags.push('Domain Reputation Low');
-        flags.push('Suspicious TLD Extension');
-        decisionMatrix.push({ indicator: 'Low Reputation TLD Extension', weight: 20 });
-      }
-
-      // 4. Typosquatting & Brand Impersonation Check
-      const brandPatterns = [
-        { brand: 'Amazon', regex: /amaz[o0]n|amzn/i },
-        { brand: 'SBI Bank', regex: /sbi|statebank/i },
-        { brand: 'HDFC Bank', regex: /hdfc/i },
-        { brand: 'ICICI Bank', regex: /icici/i },
-        { brand: 'Paytm', regex: /paytm/i },
-        { brand: 'Google', regex: /g[o0]{2}gle/i },
-        { brand: 'WhatsApp', regex: /whatsa?pp/i },
-        { brand: 'Telegram', regex: /telegr?am/i },
-        { brand: 'TCS', regex: /tcs/i },
-        { brand: 'Flipkart', regex: /flipkart/i }
-      ];
-
-      brandPatterns.forEach(({ brand, regex }) => {
-        if (regex.test(hostname) && !hostname.endsWith(`.${brand.toLowerCase().replace(/\s+/g, '')}.com`)) {
-          flags.push(`Fake Brand Impersonation (${brand})`);
-          flags.push('Typosquatting');
-          decisionMatrix.push({ indicator: `Typosquatting / ${brand} Impersonation`, weight: 30 });
-        }
-      });
-
-      // 5. Credential Harvesting & Free Lure Keywords
-      const fullPath = (parsed.hostname + parsed.pathname + parsed.search).toLowerCase();
-      if (/login|signin|verify|account|pass|kyc|update|auth/i.test(fullPath)) {
-        flags.push('Credential Harvesting');
-        flags.push('Fake Login Page');
-        decisionMatrix.push({ indicator: 'Credential Harvesting Login Lure', weight: 25 });
-      }
-
-      if (/free|reward|claim|bonus|gift|dhamaka|cashback|win|lucky/i.test(fullPath)) {
-        flags.push('Free Offer Lure');
-        decisionMatrix.push({ indicator: 'Free Offer / Reward Bait Lure', weight: 20 });
-      }
     } catch (e) {
-      logger.warn(`[URL Parsing Warning] ${inputUrl}: ${e.message}`);
+      logger.warn(`[URL Parse Warning] ${inputUrl}: ${e.message}`);
+    }
+
+    const isOfficialLegitDomain = officialDomains.some(
+      (d) => hostname === d || hostname.endsWith('.' + d)
+    );
+
+    // Whitelisted Official Authentic Domain Case
+    if (isOfficialLegitDomain && isHttps) {
+      return {
+        url: formattedUrl,
+        category: 'Legitimate Official Website',
+        riskScore: 5,
+        confidenceScore: 99,
+        summary: `Verified Authentic Domain. The inspected URL (${hostname}) is an official, SSL-secured website belonging to a recognized brand. No phishing or typosquatting indicators found.`,
+        detailedExplanation: `Verified Authentic Domain. The inspected URL (${hostname}) is an official, SSL-secured website belonging to a recognized brand. No phishing or typosquatting indicators found.`,
+        redFlags: [],
+        reasons: [],
+        decisionMatrix: [
+          { indicator: 'Verified Official Brand Domain Record', weight: 0 },
+          { indicator: 'Valid HTTPS SSL Encryption', weight: 0 }
+        ],
+        recommendations: [
+          'This URL belongs to the official verified website.',
+          'Safe to browse, log in, and make purchases.'
+        ],
+        safetyTips: [
+          'Always verify that the browser address bar displays the official domain name and https:// lock icon.'
+        ]
+      };
+    }
+
+    // Otherwise, perform full threat checks for suspicious or non-official links
+    const flags = [];
+    const decisionMatrix = [];
+    let isIpAddress = /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname);
+    const suspiciousTlds = ['.xyz', '.top', '.tk', '.online', '.site', '.club', '.work', '.info', '.biz', '.cc', '.ru', '.cf', '.ga', '.ml', '.gq'];
+    let isSuspiciousTld = suspiciousTlds.some((tld) => hostname.endsWith(tld));
+
+    if (!isHttps) {
+      flags.push('HTTP (No SSL)');
+      decisionMatrix.push({ indicator: 'HTTP (No SSL) Unencrypted Connection', weight: 25 });
+    }
+    if (isIpAddress) {
+      flags.push('Unknown Domain / Raw IP');
+      decisionMatrix.push({ indicator: 'Raw IP Hostname (No Domain Record)', weight: 35 });
+    }
+    if (isSuspiciousTld) {
+      flags.push('Domain Reputation Low');
+      flags.push('Suspicious TLD Extension');
+      decisionMatrix.push({ indicator: 'Low Reputation TLD Extension', weight: 20 });
+    }
+
+    // Check for Typosquatting / Impersonation ONLY if not official domain
+    const brandPatterns = [
+      { brand: 'Amazon', regex: /amaz[o0]n|amzn/i, legit: ['amazon.com', 'amazon.in'] },
+      { brand: 'SBI Bank', regex: /sbi|statebank/i, legit: ['sbi.co.in', 'onlinesbi.sbi'] },
+      { brand: 'HDFC Bank', regex: /hdfc/i, legit: ['hdfcbank.com'] },
+      { brand: 'ICICI Bank', regex: /icici/i, legit: ['icicibank.com'] },
+      { brand: 'Paytm', regex: /paytm/i, legit: ['paytm.com'] },
+      { brand: 'Google', regex: /g[o0]{2}gle/i, legit: ['google.com', 'google.co.in'] },
+      { brand: 'WhatsApp', regex: /whatsa?pp/i, legit: ['whatsapp.com'] },
+      { brand: 'Telegram', regex: /telegr?am/i, legit: ['telegram.org', 't.me'] },
+      { brand: 'Flipkart', regex: /flipkart/i, legit: ['flipkart.com', 'flipkart.in'] }
+    ];
+
+    brandPatterns.forEach(({ brand, regex, legit }) => {
+      const isLegit = legit.some((l) => hostname === l || hostname.endsWith('.' + l));
+      if (regex.test(hostname) && !isLegit) {
+        flags.push(`Fake Brand Impersonation (${brand})`);
+        flags.push('Typosquatting');
+        decisionMatrix.push({ indicator: `Typosquatting / ${brand} Impersonation`, weight: 30 });
+      }
+    });
+
+    const fullPath = formattedUrl.toLowerCase();
+    if (/login|signin|verify|account|pass|kyc|update|auth/i.test(fullPath) && !isOfficialLegitDomain) {
+      flags.push('Credential Harvesting');
+      flags.push('Fake Login Page');
+      decisionMatrix.push({ indicator: 'Credential Harvesting Login Lure', weight: 25 });
+    }
+
+    if (/free|reward|claim|bonus|gift|dhamaka|cashback|win|lucky/i.test(fullPath) && !isOfficialLegitDomain) {
+      flags.push('Free Offer Lure');
+      decisionMatrix.push({ indicator: 'Free Offer / Reward Bait Lure', weight: 20 });
     }
 
     const contextPrompt = `
 Analyze URL Security Threat: ${formattedUrl}
 Hostname: ${hostname}
 Detected Flags: ${flags.join(', ')}
-
-Examine for:
-- Fake Brand Impersonation
-- Typosquatting
-- HTTP (No SSL)
-- Free Offer Lure
-- Credential Harvesting
-- Fake Login Page
-- Unknown Domain
-- Domain Reputation Low
 `;
 
     const aiReport = await AIService.analyzeScamText(contextPrompt, 'URL');
-
-    // Combine detected flags into AI report
     const mergedRedFlags = Array.from(new Set([...flags, ...(aiReport.redFlags || [])]));
     const mergedMatrix = [...decisionMatrix, ...(aiReport.decisionMatrix || [])];
 
@@ -118,9 +141,10 @@ Examine for:
     return {
       url: formattedUrl,
       category: dynamicCategory,
-      riskScore: Math.max(aiReport.riskScore || 85, flags.length > 0 ? 80 : 40),
+      riskScore: Math.max(aiReport.riskScore || 85, flags.length > 0 ? 80 : 20),
       confidenceScore: aiReport.confidenceScore || 95,
-      summary: aiReport.summary || `URL Security Analysis detected high-risk indicators including ${flags.join(', ')}.`,
+      summary: aiReport.summary || `URL Security Analysis detected threat indicators: ${flags.join(', ')}.`,
+      detailedExplanation: aiReport.detailedExplanation || `URL Security Analysis detected threat indicators: ${flags.join(', ')}.`,
       redFlags: mergedRedFlags,
       reasons: mergedRedFlags,
       decisionMatrix: mergedMatrix,
